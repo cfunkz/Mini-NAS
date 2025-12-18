@@ -44,6 +44,7 @@ A miniature LXC NAS system tested on unprivileged `Debian 12` container using `P
 - Create custom groups & shares easily.
 - Per-user recycle bins.
 - Automated user, group, and Samba account management.
+- Automated share management.
 
 ### Limitations
 - Samba authentication is local-only (no AD/LDAP).
