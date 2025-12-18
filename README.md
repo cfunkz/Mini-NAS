@@ -27,7 +27,7 @@ A miniature NAS system tested on unprivileged `Debian 12` container using `Proxm
 
 ## How Access Works
 
-### Permissions
+### Default Share Permissions
 - **Homes**: private.
 - **Shared** (Optional): everyone can read/write/delete.
 - **Public** (Optional): everyone read; only `nas_public` + `nas_admin` can write.
