@@ -114,7 +114,7 @@ nasctl group adduser nas_media test2
 **3. Create the share**
 ```bash
 # If for "nas_media" only
-nasctl share create Media /srv/samba/media "@nas_media @nas_admin" "@nas_media @nas_admin"
+nasctl share create Media /srv/samba/media "@nas_media" "@nas_media"
 
 # If for all users
 nasctl share create Media /srv/samba/media "@nas_user @nas_admin" "@nas_user @nas_admin"
