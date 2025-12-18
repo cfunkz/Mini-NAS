@@ -34,7 +34,7 @@ A miniature LXC NAS system tested on unprivileged `Debian 12` container using `P
 - **Guest** (optional): read-only for guests, writable by `nas_admin`.
 
 ### Roles
-- `nas_user` = Standard users; read access to all public shares, write access limited to their own home directory.
+- `nas_user` = Standard users; read access to all enabled shares, write access limited to their own home directory.
 - `nas_admin` = Full administrative access; read, write, and modify all shares and user directories.
 - `nas_public` = Users granted write permissions specifically for the Public share.
 
