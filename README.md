@@ -108,7 +108,7 @@ To create a new `"Media"` share follow the steps:
 
 **2. Add wanted users to the group**
 ```bash
-nasctl group adduser nas_media test2
+nasctl group adduser nas_media nasuser
 ```
 
 **3. Create the share**
