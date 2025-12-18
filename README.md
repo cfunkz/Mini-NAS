@@ -1,5 +1,5 @@
 # Mini Samba NAS Setup
-A miniature LXC NAS system tested on unprivileged `Debian 12` container using `Proxmox VE 9.1.2`. Designed for homelabs and small trusted environments.
+A miniature NAS system tested on unprivileged `Debian 12` container using `Proxmox VE 9.1.2`. Designed for homelabs and small trusted environments.
 
 ---
 <img width="1919" height="355" alt="image" src="https://github.com/user-attachments/assets/170fdb8a-8a81-48a6-80e2-6870dc579210" />
