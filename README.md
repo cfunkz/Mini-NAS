@@ -2,14 +2,7 @@
 A miniature LXC NAS system tested on unprivileged `Debian 12` container using `Proxmox VE 9.1.2`. Designed for homelabs and small trusted environments.
 
 ---
-<img width="1919" height="307" alt="image" src="https://github.com/user-attachments/assets/95f93d0d-91ec-4144-8862-d63758c14d38" />
-<p align="center">
-  <img src="https://github.com/user-attachments/assets/f9d7c14b-e48b-49ce-9024-c1915a918824" width="400"/>
-  <img src="https://github.com/user-attachments/assets/0c0f6b88-25d2-4e50-a471-7bbe57957e05" width="400" />
-</p>
-<p align="center">
-  <img src="https://github.com/user-attachments/assets/296e72bd-10f3-4bf8-b346-81a39451b7a1" width="800" />
-</p>
+<img width="1919" height="355" alt="image" src="https://github.com/user-attachments/assets/170fdb8a-8a81-48a6-80e2-6870dc579210" />
 
 > ⚠️ Disclaimer  
 > Built as a personal project and learning exercise, I'm no expert!
@@ -72,7 +65,7 @@ chmod +x nas
 
 ### Follow Steps
 > NOTE: Install by following the steps
-<img width="931" height="633" alt="image" src="https://github.com/user-attachments/assets/a3dc9289-4621-4952-a36d-ae8d36f9987f" />
+<img width="800" height="630" alt="image" src="https://github.com/user-attachments/assets/4ded3c86-fb0a-4d9f-9c84-d15dc559c112" />
 
 ### Manage
 > NOTE: Post-install management
