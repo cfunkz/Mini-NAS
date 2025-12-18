@@ -119,3 +119,6 @@ nasctl share create Media /srv/samba/media "@nas_media @nas_admin" "@nas_media @
 # If for all users
 nasctl share create Media /srv/samba/media "@nas_user @nas_admin" "@nas_user @nas_admin"
 ```
+
+Auto-appended to `/etc/samba/smb.conf`
+<img width="387" height="270" alt="image" src="https://github.com/user-attachments/assets/3889dd10-bb76-403e-9199-72f7583df638" />
