@@ -17,7 +17,7 @@ A miniature NAS system tested on unprivileged `Debian 12` container using `Proxm
 
 ## Table of Contents
 - [How Access Works](#how-access-works)
-  - [Permissions](#permissions)
+  - [Default Share Permissions](#default-share-permissions)
   - [Roles](#roles)
   - [Features](#features)
   - [Limitations](#limitations)
