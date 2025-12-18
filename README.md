@@ -123,5 +123,5 @@ nasctl group adduser nas_media test2
 nasctl share create Media /srv/samba/media "@nas_media @nas_admin" "@nas_media @nas_admin"
 
 # If for all users
-nasctl share create Media /srv/samba/media "@nas_users @nas_admin" "@nas_admin"
+nasctl share create Media /srv/samba/media "@nas_user @nas_admin" "@nas_user @nas_admin"
 ```
