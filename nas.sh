@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# file: tools/install-samba.sh
 set -euo pipefail
 
 ### ===============================
