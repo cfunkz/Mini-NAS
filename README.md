@@ -52,7 +52,7 @@ A miniature NAS system tested on unprivileged `Debian 12` container using `Proxm
 - Samba authentication is local-only (no AD/LDAP).
 - Windows ACLs not fully supported.
 - No brute force mitigation, must install fail2ban.
-- Changes are script-driven.
+- Changes are made via `nasctl` commands.
 
 ## Installation
 > NOTE: **AS ROOT ON THE HOST NODE, NOT IN CONTAINER**
