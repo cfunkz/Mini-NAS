@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# file: tools/install-samba.sh
 set -euo pipefail
 
 ### ===============================
@@ -69,15 +68,14 @@ WORKGROUP="$(ask "Workgroup" "WORKGROUP")"
 SERVERSTR="$(ask "Server description" "Mini NAS")"
 ALLOWED_SUBNETS="$(ask "Allowed subnets (space-separated CIDRs)" "127.0.0.1/32 192.168.0.0/16")"
 
-ENABLE_GUEST="$(ask_yn "Enable guest share" n)"
-ENABLE_SHARED="$(ask_yn "Enable shared share" y)"
-ENABLE_PUBLIC="$(ask_yn "Enable public share" y)"
-ENABLE_HOMES="$(ask_yn "Enable homes" y)"
+ENABLE_GUEST="$(ask_yn "Enable Guest share" n)"
+ENABLE_SHARED="$(ask_yn "Enable Shared share" y)"
+ENABLE_PUBLIC="$(ask_yn "Enable Public share" y)"
+ENABLE_HOMES="$(ask_yn "Enable Homes" y)"
 
-ENABLE_RECYCLE="$(ask_yn "Enable recycle bin" y)"
+ENABLE_RECYCLE="$(ask_yn "Enable Recycle bin" y)"
 ENABLE_RECYCLE_SHARE=n
-[ "$ENABLE_RECYCLE" = y ] && ENABLE_RECYCLE_SHARE="$(ask_yn "Expose recycle share" y)"
-
+[ "$ENABLE_RECYCLE" = y ] && ENABLE_RECYCLE_SHARE="$(ask_yn "Expose Recycle share" y)"
 ENABLE_NETBIOS="$(ask_yn "Enable NetBIOS (nmbd, ports 137-139)" n)"
 CONFIGURE_UFW="$(ask_yn "Configure UFW firewall rules now" y)"
 if [ "$CONFIGURE_UFW" = y ]; then
@@ -121,6 +119,7 @@ tmp_conf="$(mktemp)"
 trap 'rm -f "$tmp_conf"' EXIT
 
 {
+# unquoted heredoc: expand variables here (intended)
 cat <<EOF
 [global]
   workgroup = $WORKGROUP
@@ -129,7 +128,7 @@ cat <<EOF
 
   security = user
   passdb backend = tdbsam
-  map to guest = Bad User
+  map to guest = $([ "$ENABLE_GUEST" = y ] && echo "Bad User" || echo "never")
 
   access based share enum = yes
   hide unreadable = yes
@@ -141,6 +140,12 @@ cat <<EOF
   ntlm auth = ntlmv2-only
   server signing = default
   smb encrypt = desired
+EOF
+
+# Only when guest disabled
+[ "$ENABLE_GUEST" = n ] && echo "  restrict anonymous = 2"
+
+cat <<EOF
 
   # Network scoping
   hosts allow = $ALLOWED_SUBNETS
@@ -186,13 +191,13 @@ cat <<EOF
   store dos attributes = yes
 EOF
 fi
-[ "$ENABLE_GUEST" = n ] && echo "  restrict anonymous = 2"
 
+# quoted heredoc: keep literal text inside
 cat <<'EOF'
 ### END GLOBAL VFS ###
 EOF
 
-write_share_block guest "$ENABLE_GUEST" <<EOF
+write_share_block Guest "$ENABLE_GUEST" <<EOF
 [Guest]
   path = $BASE/guest
   browseable = yes
@@ -203,8 +208,7 @@ write_share_block guest "$ENABLE_GUEST" <<EOF
   directory mask = 2775
 EOF
 
-# Traditional shared: all authenticated users in nas_user
-write_share_block shared "$ENABLE_SHARED" <<EOF
+write_share_block Shared "$ENABLE_SHARED" <<EOF
 [Shared]
   path = $BASE/shared
   browseable = yes
@@ -217,7 +221,7 @@ write_share_block shared "$ENABLE_SHARED" <<EOF
   directory mask = 2770
 EOF
 
-write_share_block public "$ENABLE_PUBLIC" <<EOF
+write_share_block Public "$ENABLE_PUBLIC" <<EOF
 [Public]
   path = $BASE/public
   browseable = yes
@@ -230,6 +234,7 @@ write_share_block public "$ENABLE_PUBLIC" <<EOF
   directory mask = 2770
 EOF
 
+# quoted heredoc so %H and %S remain literals for Samba
 write_share_block homes "$ENABLE_HOMES" <<'EOF'
 [homes]
   path = %H
@@ -241,9 +246,8 @@ write_share_block homes "$ENABLE_HOMES" <<'EOF'
   directory mask = 0700
 EOF
 
-# Override vfs objects to prevent recycle recursion
-write_share_block recycle "$ENABLE_RECYCLE_SHARE" <<EOF
-[Recycle Bin]
+write_share_block Recycle "$ENABLE_RECYCLE_SHARE" <<EOF
+[Recycle]
   path = $RECYCLE/%U
   browseable = yes
   read only = no
@@ -271,6 +275,7 @@ install -m 0644 "$tmp_conf" "$CONF"
 if [ "$ENABLE_RECYCLE" = y ]; then
   echo 30 > "$DAYS_FILE"
 
+  # quoted heredoc: keep variables literal inside the script body
   cat > /usr/local/sbin/nas-recycle-cleanup <<'EOF_CLEAN'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -278,9 +283,7 @@ DAYS="$(cat /etc/samba/nas-recycle-days 2>/dev/null || echo 30)"
 RECYCLE_BASE="/srv/samba/.recycle"
 [ -d "$RECYCLE_BASE" ] || exit 0
 
-# Remove old files
 find "$RECYCLE_BASE" -type f -mtime "+$DAYS" -print -delete 2>/dev/null || true
-# Remove empty dirs (depth-first) — fixed var; avoid undefined $RECYCLE
 find "$RECYCLE_BASE" -mindepth 2 -type d -empty -mtime "+$DAYS" -delete
 EOF_CLEAN
   chmod 0755 /usr/local/sbin/nas-recycle-cleanup
@@ -318,19 +321,15 @@ if [ "$CONFIGURE_UFW" = y ]; then
     apt-get install -y ufw
   fi
 
-  # Allow loopback
   ufw allow in on lo >/dev/null 2>&1 || true
 
-  # Add rules for each allowed subnet
   for net in $ALLOWED_SUBNETS; do
     if [ "$ENABLE_NETBIOS" = y ]; then
-      # Full Samba when NetBIOS is enabled
       ufw allow from "$net" to any app Samba >/dev/null 2>&1 || {
         ufw allow from "$net" to any port 137,138 proto udp || true
         ufw allow from "$net" to any port 139,445 proto tcp || true
       }
     else
-      # SMB over TCP only (445)
       ufw allow from "$net" to any port 445 proto tcp || true
     fi
   done
@@ -355,54 +354,36 @@ fi
 systemctl restart smbd
 
 ### ===============================
-### nasctl - Mini-NAS Management CLI (preserved)
+### nasctl - Mini-NAS Management CLI
 ### ===============================
 cat > /usr/local/sbin/nasctl <<'EOF_NASCTL'
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ---- Consts ----
 CONF="/etc/samba/smb.conf"
 BKDIR="/var/backups/samba"
 RECYCLE="/srv/samba/.recycle"
 DAYS="/etc/samba/nas-recycle-days"
+BASE="/srv/samba"
 GROUP_ADMIN="nas_admin"
 GROUP_USER="nas_user"
 GROUP_PUBLIC="nas_public"
 
+# ---- Utils ----
 die(){ echo "ERROR: $*" >&2; exit 1; }
 need_root(){ [ "${EUID:-0}" -eq 0 ] || die "Run as root"; }
-
 valid_name(){ [[ "${1:-}" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]]; }
 valid_share(){ [[ "${1:-}" =~ ^[A-Za-z0-9._-]{1,64}$ ]]; }
 
-reload(){ testparm -s >/dev/null; systemctl restart smbd 2>/dev/null || systemctl restart smbd; }
+reload(){
+  testparm -s >/dev/null
+  systemctl restart smbd || die "failed to restart smbd"
+  systemctl is-active --quiet nmbd 2>/dev/null && systemctl restart nmbd || true
+}
 
 start_line(){ echo "### START SHARE $1 ###"; }
 end_line(){ echo "### END SHARE $1 ###"; }
-
-toggle_block(){
-  local name="$1" mode="$2" s e
-  s="$(start_line "$name")"
-  e="$(end_line "$name")"
-
-  awk -v s="$s" -v e="$e" -v m="$mode" '
-    $0==s {print; inside=1; next}
-    $0==e {inside=0; print; next}
-    inside==1 {
-      if(m=="disable"){
-        if($0 ~ /^;/) print
-        else print "; " $0
-        next
-      }
-      if(m=="enable"){
-        sub(/^;[ ]?/, "", $0)
-        print
-        next
-      }
-    }
-    {print}
-  ' "$CONF" > "$CONF.tmp" && mv "$CONF.tmp" "$CONF"
-}
 
 share_exists(){
   grep -Fxq "$(start_line "$1")" "$CONF" && grep -Fxq "$(end_line "$1")" "$CONF"
@@ -410,22 +391,93 @@ share_exists(){
 
 share_list(){
   awk '
-    /^### START SHARE / {
-      name=$4
-      sub(/ ###$/, "", name)
-      inside=1
-      state="disabled"
-      next
+    /^### START SHARE / { name=$4; sub(/ ###$/, "", name); inside=1; state="disabled"; next }
+    /^### END SHARE /   { printf "%-16s %s\n", name, state; inside=0; next }
+    inside==1 && /^\[/ { state="enabled" }
+  ' "$CONF"
+}
+
+toggle_block(){ # enable|disable by commenting inner lines
+  local name="$1" mode="$2" s e
+  s="$(start_line "$name")"; e="$(end_line "$name")"
+  awk -v s="$s" -v e="$e" -v m="$mode" '
+    $0==s {print; inside=1; next}
+    $0==e {inside=0; print; next}
+    inside==1 {
+      if(m=="disable"){ if($0 ~ /^;/) print; else print "; " $0; next }
+      if(m=="enable"){ sub(/^;[ ]?/,"",$0); print; next }
     }
-    /^### END SHARE / {
-      printf "%-16s %s\n", name, state
-      inside=0
-      next
-    }
-    inside==1 && /^\[/ {
-      state="enabled"
+    {print}
+  ' "$CONF" > "$CONF.tmp" && mv "$CONF.tmp" "$CONF"
+}
+
+remove_block(){ # delete marked block
+  local name="$1" s e
+  s="$(start_line "$name")"; e="$(end_line "$name")"
+  grep -Fxq "$s" "$CONF" && grep -Fxq "$e" "$CONF" || die "Share not found: $name"
+  awk -v s="$s" -v e="$e" '
+    $0==s {inside=1; next}
+    $0==e {inside=0; next}
+    inside!=1 {print}
+  ' "$CONF" > "$CONF.tmp"
+  testparm -s "$CONF.tmp" >/dev/null || { rm -f "$CONF.tmp"; die "Resulting config invalid"; }
+  mv "$CONF.tmp" "$CONF"
+}
+
+get_share_path(){ # extract "path = ..." inside block
+  local name="$1" s e
+  s="$(start_line "$name")"; e="$(end_line "$name")"
+  awk -v s="$s" -v e="$e" '
+    $0==s {inside=1; next}
+    $0==e {inside=0; next}
+    inside==1 && $0 ~ /^[[:space:]]*path[[:space:]]*=/ {
+      gsub(/^[[:space:]]*path[[:space:]]*=[[:space:]]*/,"")
+      gsub(/[[:space:]]+$/,"")
+      print; exit
     }
   ' "$CONF"
+}
+
+safe_purge_dir(){ # only under $BASE, never $BASE or /
+  local dir="$1"
+  [ -n "$dir" ] || die "Empty directory path"
+  [ -d "$dir" ] || { echo "Note: not found, nothing to purge: $dir"; return 0; }
+  local real; real="$(readlink -f -- "$dir" 2>/dev/null || true)"
+  [ -n "$real" ] || die "Cannot resolve: $dir"
+  [[ "$real" == "$BASE"* ]] || die "Refusing to purge outside $BASE: $real"
+  [ "$real" != "$BASE" ] || die "Refusing to purge BASE itself"
+  [ "$real" != "/" ] || die "Refusing to purge /"
+  rm -rf -- "$real"
+}
+
+append_share_block(){ # tmp file build + validate
+  local name="$1" path="$2" valid_users="$3" write_list="$4"
+  local tmp; tmp="$(mktemp)"; cp "$CONF" "$tmp"
+  {
+    echo ""
+    echo "### START SHARE $name ###"
+    echo "[$name]"
+    echo "  path = $path"
+    echo "  browseable = yes"
+    echo "  read only = no"
+    echo "  valid users = $valid_users"
+    echo "  write list  = $write_list"
+    echo "  inherit permissions = yes"
+    echo "  create mask = 0660"
+    echo "  directory mask = 2770"
+    echo "### END SHARE $name ###"
+  } >> "$tmp"
+  testparm -s "$tmp" >/dev/null || { rm -f "$tmp"; die "Generated config invalid"; }
+  mv "$tmp" "$CONF"
+}
+
+validate_acl_tokens(){ # allow @group or user; groups must exist
+  local list="$1" t
+  for t in $list; do
+    if [[ "$t" =~ ^@(.+)$ ]]; then getent group "${BASH_REMATCH[1]}" >/dev/null || die "No such group: $t"
+    else id "$t" >/dev/null 2>&1 || true
+    fi
+  done
 }
 
 usage(){
@@ -452,7 +504,8 @@ Shares:
   nasctl share list
   nasctl share enable  <name>
   nasctl share disable <name>
-  nasctl share create <name> <path> <valid_users> <write_list>
+  nasctl share create  <name> <path> <valid_users> <write_list>
+  nasctl share delete  <name> [--purge-share]
 
 Recycle:
   nasctl recycle flush
@@ -461,6 +514,7 @@ Recycle:
 EOF
 }
 
+# ---- CLI ----
 need_root
 cmd="${1:-}"; shift || true
 
@@ -469,160 +523,86 @@ case "$cmd" in
     sub="${1:-}"; shift || true
     case "$sub" in
       add)
-        u="${1:-}"; [ -n "$u" ] || die "user add <name>"
-        valid_name "$u" || die "Invalid username"
-        id "$u" >/dev/null 2>&1 || useradd -m -d "/srv/samba/homes/$u" -s /usr/sbin/nologin "$u"
+        u="${1:-}"; [ -n "$u" ] || die "user add <name>"; valid_name "$u" || die "Invalid username"
+        id "$u" >/dev/null 2>&1 || useradd -m -d "$BASE/homes/$u" -s /usr/sbin/nologin "$u"
         usermod -aG "$GROUP_USER" "$u"
-        mkdir -p "/srv/samba/homes/$u"
-        chown "$u:$u" "/srv/samba/homes/$u" || true
-        chmod 0700 "/srv/samba/homes/$u" || true
-        echo "Set Samba password for $u:"
-        smbpasswd -a "$u"; smbpasswd -e "$u"
+        mkdir -p "$BASE/homes/$u"; chown "$u:$u" "$BASE/homes/$u" || true; chmod 0700 "$BASE/homes/$u" || true
+        echo "Set Samba password for $u:"; smbpasswd -a "$u"; smbpasswd -e "$u"
         ;;
       del)
-        u="${1:-}"; [ -n "$u" ] || die "user del <name>"
-        valid_name "$u" || die "Invalid username"
+        u="${1:-}"; [ -n "$u" ] || die "user del <name>"; valid_name "$u" || die "Invalid username"
         purge=n; [ "${2:-}" = "--purge-home" ] && purge=y
         smbpasswd -x "$u" 2>/dev/null || true
         [ "$purge" = y ] && userdel -r "$u" 2>/dev/null || userdel "$u" 2>/dev/null || true
         ;;
       passwd)
-        u="${1:-}"; [ -n "$u" ] || die "user passwd <name>"
-        valid_name "$u" || die "Invalid username"
+        u="${1:-}"; [ -n "$u" ] || die "user passwd <name>"; valid_name "$u" || die "Invalid username"
         smbpasswd "$u"
         ;;
       *) usage; exit 1;;
     esac
     ;;
-
   group)
     sub="${1:-}"; shift || true
     case "$sub" in
-      create)
-        g="${1:-}"; [ -n "$g" ] || die "group create <group>"
-        valid_name "$g" || die "Invalid group name"
-        getent group "$g" >/dev/null && die "Group already exists: $g"
-        groupadd "$g"
-        ;;
-      adduser)
-        g="${1:-}"; u="${2:-}"
-        [ -n "$g" ] && [ -n "$u" ] || die "group adduser <group> <user>"
-        valid_name "$g" && valid_name "$u" || die "Invalid name"
-        getent group "$g" >/dev/null || die "Group does not exist: $g"
-        usermod -aG "$g" "$u"
-        ;;
-      deluser)
-        g="${1:-}"; u="${2:-}"
-        [ -n "$g" ] && [ -n "$u" ] || die "group deluser <group> <user>"
-        gpasswd -d "$u" "$g"
-        ;;
-      list)
-        u="${1:-}"; [ -n "$u" ] || die "group list <user>"
-        id "$u"
-        ;;
+      create) g="${1:-}"; [ -n "$g" ] || die "group create <group>"; valid_name "$g" || die "Invalid group"; getent group "$g" >/dev/null && die "Exists"; groupadd "$g" ;;
+      adduser) g="${1:-}"; u="${2:-}"; [ -n "$g" ] && [ -n "$u" ] || die "group adduser <group> <user>"; valid_name "$g" && valid_name "$u" || die "Invalid"; getent group "$g" >/dev/null || die "No such group"; usermod -aG "$g" "$u" ;;
+      deluser) g="${1:-}"; u="${2:-}"; [ -n "$g" ] && [ -n "$u" ] || die "group deluser <group> <user>"; gpasswd -d "$u" "$g" ;;
+      list) u="${1:-}"; [ -n "$u" ] || die "group list <user>"; id "$u" ;;
       *) usage; exit 1;;
     esac
     ;;
-
   conf)
-    sub="${1:-}"; shift || true
-    mkdir -p "$BKDIR"
+    sub="${1:-}"; shift || true; mkdir -p "$BKDIR"
     case "$sub" in
-      backup)
-        ts="$(date +%F_%H%M%S)"
-        tar -czf "$BKDIR/samba-$ts.tgz" /etc/samba/smb.conf /etc/samba/nas-recycle-days \
-          /etc/systemd/system/nas-recycle-cleanup.* /usr/local/sbin/nas-recycle-cleanup 2>/dev/null || true
-        echo "Saved: $BKDIR/samba-$ts.tgz"
-        ;;
-      list) ls -1 "$BKDIR" 2>/dev/null || true ;;
-      restore)
-        f="${1:-}"; [ -n "$f" ] || die "conf restore <file.tgz>"
-        tar -xzf "$f" -C /
-        systemctl daemon-reload 2>/dev/null || true
-        reload
-        ;;
+      backup) ts="$(date +%F_%H%M%S)"; tar -czf "$BKDIR/samba-$ts.tgz" "$CONF" "$DAYS" /etc/systemd/system/nas-recycle-cleanup.* /usr/local/sbin/nas-recycle-cleanup 2>/dev/null || true; echo "Saved: $BKDIR/samba-$ts.tgz" ;;
+      list)   ls -1 "$BKDIR" 2>/dev/null || true ;;
+      restore) f="${1:-}"; [ -n "$f" ] || die "conf restore <file.tgz>"; tar -xzf "$f" -C /; systemctl daemon-reload 2>/dev/null || true; reload ;;
       *) usage; exit 1;;
     esac
     ;;
-
   share)
     sub="${1:-}"; shift || true
     case "$sub" in
       list) share_list ;;
-      enable)
-        n="${1:-}"; [ -n "$n" ] || die "share enable <name>"
-        share_exists "$n" || die "Share not found: $n"
-        toggle_block "$n" enable
-        reload
-        ;;
-      disable)
-        n="${1:-}"; [ -n "$n" ] || die "share disable <name>"
-        share_exists "$n" || die "Share not found: $n"
-        toggle_block "$n" disable
-        reload
-        ;;
+      enable)  n="${1:-}"; [ -n "$n" ] || die "share enable <name>"; share_exists "$n" || die "Not found"; toggle_block "$n" enable;  reload ;;
+      disable) n="${1:-}"; [ -n "$n" ] || die "share disable <name>"; share_exists "$n" || die "Not found"; toggle_block "$n" disable; reload ;;
       create)
-        name="${1:-}"
-        path="${2:-}"
-        valid_users="${3:-}"
-        write_list="${4:-}"
-
-        [ -n "$name" ] && [ -n "$path" ] && [ -n "$valid_users" ] \
-          || die "share create <name> <path> <valid_users> <write_list>"
-
+        name="${1:-}"; path="${2:-}"; valid_users="${3:-}"; write_list="${4:-}"
+        [ -n "$name" ] && [ -n "$path" ] && [ -n "$valid_users" ] && [ -n "$write_list" ] || die "share create <name> <path> <valid_users> <write_list>"
         valid_share "$name" || die "Invalid share name"
+        grep -Fxq "### START SHARE $name ###" "$CONF" && die "Share exists: $name"
 
-        grp="$(echo "$write_list" | awk '{print $1}' | sed 's/^@//')"
-        [ -n "$grp" ] || die "write_list must include at least one @group"
-        getent group "$grp" >/dev/null || die "Group does not exist: $grp"
+        owner_tok="$(awk '{print $1}' <<<"$write_list")"
+        [[ "$owner_tok" =~ ^@([A-Za-z0-9._-]+)$ ]] || die "write_list must start with @group (owner)"
+        owner_grp="${BASH_REMATCH[1]}"; getent group "$owner_grp" >/dev/null || die "No such group: $owner_grp"
 
-        mkdir -p "$path"
-        chown root:"$grp" "$path"
-        chmod 2770 "$path"
+        validate_acl_tokens "$valid_users"; validate_acl_tokens "$write_list"
 
-        {
-          echo ""
-          echo "### START SHARE $name ###"
-          echo "[$name]"
-          echo "  path = $path"
-          echo "  browseable = yes"
-          echo "  read only = no"
-          echo "  valid users = $valid_users"
-          echo "  write list  = $write_list"
-          echo "  inherit permissions = yes"
-          echo "  create mask = 0660"
-          echo "  directory mask = 2770"
-          echo "### END SHARE $name ###"
-        } >> "$CONF"
-
+        mkdir -p "$path"; chown root:"$owner_grp" "$path"; chmod 2770 "$path"
+        append_share_block "$name" "$path" "$valid_users" "$write_list"
         reload
+        ;;
+      delete)
+        n="${1:-}"; [ -n "$n" ] || die "share delete <name> [--purge-share]"
+        purge="${2:-}"
+        share_exists "$n" || die "Not found: $n"
+        share_path="$(get_share_path "$n")"; [ -n "$share_path" ] || die "Cannot detect path for $n"
+        remove_block "$n"; reload
+        [ "$purge" = "--purge-share" ] && { echo "Purging $share_path"; safe_purge_dir "$share_path"; }
         ;;
       *) usage; exit 1;;
     esac
     ;;
-
   recycle)
     sub="${1:-}"; shift || true
     case "$sub" in
-      flush)
-        [ -d "$RECYCLE" ] || exit 0
-        find "$RECYCLE" -type f -delete 2>/dev/null || true
-        find "$RECYCLE" -mindepth 2 -type d -empty -delete 2>/dev/null || true
-        ;;
-      days)
-        n="${1:-}"; [[ "$n" =~ ^[0-9]+$ ]] || die "recycle days <N>"
-        echo "$n" > "$DAYS"
-        ;;
-      timer)
-        v="${1:-}"; [ -n "$v" ] || die "recycle timer on|off"
-        if [ "$v" = "on" ]; then systemctl enable --now nas-recycle-cleanup.timer
-        else systemctl disable --now nas-recycle-cleanup.timer
-        fi
-        ;;
+      flush) [ -d "$RECYCLE" ] || exit 0; find "$RECYCLE" -type f -delete 2>/dev/null || true; find "$RECYCLE" -mindepth 2 -type d -empty -delete 2>/dev/null || true ;;
+      days)  n="${1:-}"; [[ "$n" =~ ^[0-9]+$ ]] || die "recycle days <N>"; echo "$n" > "$DAYS" ;;
+      timer) v="${1:-}"; [ -n "$v" ] || die "recycle timer on|off"; if [ "$v" = "on" ]; then systemctl enable --now nas-recycle-cleanup.timer; else systemctl disable --now nas-recycle-cleanup.timer; fi ;;
       *) usage; exit 1;;
     esac
     ;;
-
   *) usage; exit 1;;
 esac
 EOF_NASCTL
