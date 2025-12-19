@@ -28,10 +28,10 @@ A miniature NAS system tested on unprivileged `Debian 12` container using `Proxm
 ## How Access Works
 
 ### Default Share Permissions
-- **Homes**: private.
-- **Shared** (Optional): everyone can read/write/delete.
-- **Public** (Optional): everyone read; only `nas_public` + `nas_admin` can write.
-- **Guest** (Optional): read-only for guests, writable by `nas_admin`.
+- **Homes**: private to each user.
+- **Shared** (Optional): `nas_user` can read/write/delete.
+- **Public** (Optional): `nas_user` read; only `nas_public` + `nas_admin` can write.
+- **Guest** (Optional): read-only for guests, writable by `nas_public` + `nas_admin`.
 
 ### Roles
 - `nas_user` = Standard users; read access to all enabled shares, write access limited to their own home directory.
