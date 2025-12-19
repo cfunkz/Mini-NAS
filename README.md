@@ -93,7 +93,7 @@ Shares:
   nasctl share enable  <name>
   nasctl share disable <name>
   nasctl share create <name> <path> <valid_users> <write_list>
-  nasctl share delete  <name> [--purge-share]
+  nasctl share delete <name> [--purge-share]
 
 Recycle:
   nasctl recycle flush
