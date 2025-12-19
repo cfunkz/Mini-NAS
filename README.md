@@ -53,6 +53,7 @@ A miniature NAS system tested on unprivileged `Debian 12` container using `Proxm
 - Windows ACLs not fully supported.
 - No brute force mitigation, must install fail2ban.
 - Changes are made via `nasctl` commands.
+- The backup only saves `/etc/samba/smb.conf` contents.
 
 ## Installation
 ```bash
