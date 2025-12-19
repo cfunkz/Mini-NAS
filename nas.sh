@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
+# file: tools/install-samba.sh
 set -euo pipefail
 
 ### ===============================
-### Global Variables
+### Globals
 ### ===============================
 BASE="/srv/samba"
 CONF="/etc/samba/smb.conf"
@@ -65,8 +66,8 @@ done
 ### Install Questions
 ### ===============================
 WORKGROUP="$(ask "Workgroup" "WORKGROUP")"
-SERVERSTR="$(ask "Server description" "Home Samba NAS")"
-ALLOWED_SUBNETS="$(ask "Allowed subnets" "127.0.0.1/32 192.168.0.0/16")"
+SERVERSTR="$(ask "Server description" "Mini NAS")"
+ALLOWED_SUBNETS="$(ask "Allowed subnets (space-separated CIDRs)" "127.0.0.1/32 192.168.0.0/16")"
 
 ENABLE_GUEST="$(ask_yn "Enable guest share" n)"
 ENABLE_SHARED="$(ask_yn "Enable shared share" y)"
@@ -76,6 +77,12 @@ ENABLE_HOMES="$(ask_yn "Enable homes" y)"
 ENABLE_RECYCLE="$(ask_yn "Enable recycle bin" y)"
 ENABLE_RECYCLE_SHARE=n
 [ "$ENABLE_RECYCLE" = y ] && ENABLE_RECYCLE_SHARE="$(ask_yn "Expose recycle share" y)"
+
+ENABLE_NETBIOS="$(ask_yn "Enable NetBIOS (nmbd, ports 137-139)" n)"
+CONFIGURE_UFW="$(ask_yn "Configure UFW firewall rules now" y)"
+if [ "$CONFIGURE_UFW" = y ]; then
+  UFW_ENABLE_IF_DISABLED="$(ask_yn "Enable UFW if currently disabled" n)"
+fi
 
 ADMIN_USER="$(ask "Initial admin username" nasadmin)"
 valid_name "$ADMIN_USER" || die "Invalid admin username"
@@ -94,9 +101,9 @@ install -d -m 0711 "$BASE/homes"
 ### ===============================
 ### Initial admin user
 ### ===============================
-id "$ADMIN_USER" &>/dev/null || \
+if ! id "$ADMIN_USER" &>/dev/null; then
   useradd -m -d "$BASE/homes/$ADMIN_USER" -s /usr/sbin/nologin "$ADMIN_USER"
-
+fi
 usermod -aG "$GROUP_ADMIN,$GROUP_USER" "$ADMIN_USER"
 
 mkdir -p "$BASE/homes/$ADMIN_USER"
@@ -128,24 +135,30 @@ cat <<EOF
   hide unreadable = yes
   hide dot files = yes
 
+  # Modern protocol/auth defaults
   server min protocol = SMB2
-  unix extensions = no
-  follow symlinks = no
-  wide links = no
-
+  client min protocol = SMB2
   ntlm auth = ntlmv2-only
-  server signing = mandatory
+  server signing = default
   smb encrypt = desired
 
+  # Network scoping
   hosts allow = $ALLOWED_SUBNETS
   hosts deny  = 0.0.0.0/0 ::/0
+  bind interfaces only = no
 
+  # NetBIOS toggle (nmbd service managed below)
+  disable netbios = $([ "$ENABLE_NETBIOS" = y ] && echo no || echo yes)
+
+  # Admins
   admin users = @$GROUP_ADMIN
 
+  # Logging
   log file = /var/log/samba/log.%m
   max log size = 1000
   log level = 1
 
+  # Printing off
   load printers = no
   disable spoolss = yes
 
@@ -175,7 +188,7 @@ EOF
 fi
 [ "$ENABLE_GUEST" = n ] && echo "  restrict anonymous = 2"
 
-cat <<EOF
+cat <<'EOF'
 ### END GLOBAL VFS ###
 EOF
 
@@ -190,7 +203,7 @@ write_share_block guest "$ENABLE_GUEST" <<EOF
   directory mask = 2775
 EOF
 
-# Traditional shared: all authenticated users that are in nas_user
+# Traditional shared: all authenticated users in nas_user
 write_share_block shared "$ENABLE_SHARED" <<EOF
 [Shared]
   path = $BASE/shared
@@ -217,7 +230,7 @@ write_share_block public "$ENABLE_PUBLIC" <<EOF
   directory mask = 2770
 EOF
 
-write_share_block homes "$ENABLE_HOMES" <<EOF
+write_share_block homes "$ENABLE_HOMES" <<'EOF'
 [homes]
   path = %H
   browseable = no
@@ -253,7 +266,7 @@ fi
 install -m 0644 "$tmp_conf" "$CONF"
 
 ### ===============================
-### Recycle cleanup (service + timer)
+### Recycle cleanup
 ### ===============================
 if [ "$ENABLE_RECYCLE" = y ]; then
   echo 30 > "$DAYS_FILE"
@@ -262,13 +275,13 @@ if [ "$ENABLE_RECYCLE" = y ]; then
 #!/usr/bin/env bash
 set -euo pipefail
 DAYS="$(cat /etc/samba/nas-recycle-days 2>/dev/null || echo 30)"
-BASE="/srv/samba/.recycle"
-[ -d "$BASE" ] || exit 0
+RECYCLE_BASE="/srv/samba/.recycle"
+[ -d "$RECYCLE_BASE" ] || exit 0
 
 # Remove old files
-find "$BASE" -type f -mtime "+$DAYS" -print -delete 2>/dev/null || true
-# Remove empty dirs (depth-first)
-find "$RECYCLE" -mindepth 2 -type d -empty -mtime "+$DAYS" -delete
+find "$RECYCLE_BASE" -type f -mtime "+$DAYS" -print -delete 2>/dev/null || true
+# Remove empty dirs (depth-first) — fixed var; avoid undefined $RECYCLE
+find "$RECYCLE_BASE" -mindepth 2 -type d -empty -mtime "+$DAYS" -delete
 EOF_CLEAN
   chmod 0755 /usr/local/sbin/nas-recycle-cleanup
 
@@ -298,13 +311,51 @@ EOF_TIMER
 fi
 
 ### ===============================
-### Samba start
+### Firewall (UFW) — optional
+### ===============================
+if [ "$CONFIGURE_UFW" = y ]; then
+  if ! command -v ufw >/dev/null 2>&1; then
+    apt-get install -y ufw
+  fi
+
+  # Allow loopback
+  ufw allow in on lo >/dev/null 2>&1 || true
+
+  # Add rules for each allowed subnet
+  for net in $ALLOWED_SUBNETS; do
+    if [ "$ENABLE_NETBIOS" = y ]; then
+      # Full Samba when NetBIOS is enabled
+      ufw allow from "$net" to any app Samba >/dev/null 2>&1 || {
+        ufw allow from "$net" to any port 137,138 proto udp || true
+        ufw allow from "$net" to any port 139,445 proto tcp || true
+      }
+    else
+      # SMB over TCP only (445)
+      ufw allow from "$net" to any port 445 proto tcp || true
+    fi
+  done
+
+  status="$(ufw status | head -n1 || true)"
+  if [[ "$status" =~ "inactive" ]] && [ "$UFW_ENABLE_IF_DISABLED" = y ]; then
+    ufw --force enable
+  fi
+fi
+
+### ===============================
+### Samba start (smbd/nmbd based on NetBIOS question)
 ### ===============================
 systemctl enable --now smbd
+if systemctl list-unit-files | grep -q '^nmbd.service'; then
+  if [ "$ENABLE_NETBIOS" = y ]; then
+    systemctl enable --now nmbd
+  else
+    systemctl disable --now nmbd || true
+  fi
+fi
 systemctl restart smbd
 
 ### ===============================
-### nasctl - Mini-NAS Management CLI
+### nasctl - Mini-NAS Management CLI (preserved)
 ### ===============================
 cat > /usr/local/sbin/nasctl <<'EOF_NASCTL'
 #!/usr/bin/env bash
@@ -324,7 +375,7 @@ need_root(){ [ "${EUID:-0}" -eq 0 ] || die "Run as root"; }
 valid_name(){ [[ "${1:-}" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]]; }
 valid_share(){ [[ "${1:-}" =~ ^[A-Za-z0-9._-]{1,64}$ ]]; }
 
-reload(){ testparm -s >/dev/null; systemctl reload smbd 2>/dev/null || systemctl restart smbd; }
+reload(){ testparm -s >/dev/null; systemctl restart smbd 2>/dev/null || systemctl restart smbd; }
 
 start_line(){ echo "### START SHARE $1 ###"; }
 end_line(){ echo "### END SHARE $1 ###"; }
@@ -553,13 +604,15 @@ case "$cmd" in
   recycle)
     sub="${1:-}"; shift || true
     case "$sub" in
-    flush)
-      [ -d "$RECYCLE" ] || exit 0
-      # Remove all files
-      find "$RECYCLE" -type f -delete 2>/dev/null || true
-      find "$RECYCLE" -mindepth 2 -type d -empty -delete 2>/dev/null || true
-      ;;
-      days)  n="${1:-}"; [[ "$n" =~ ^[0-9]+$ ]] || die "recycle days <N>"; echo "$n" > "$DAYS" ;;
+      flush)
+        [ -d "$RECYCLE" ] || exit 0
+        find "$RECYCLE" -type f -delete 2>/dev/null || true
+        find "$RECYCLE" -mindepth 2 -type d -empty -delete 2>/dev/null || true
+        ;;
+      days)
+        n="${1:-}"; [[ "$n" =~ ^[0-9]+$ ]] || die "recycle days <N>"
+        echo "$n" > "$DAYS"
+        ;;
       timer)
         v="${1:-}"; [ -n "$v" ] || die "recycle timer on|off"
         if [ "$v" = "on" ]; then systemctl enable --now nas-recycle-cleanup.timer
@@ -580,3 +633,7 @@ echo "== DONE =="
 echo "Config: $CONF"
 echo "Base path: $BASE"
 echo "CLI: nasctl"
+echo "NetBIOS: $([ "$ENABLE_NETBIOS" = y ] && echo enabled || echo disabled)"
+if [ "$CONFIGURE_UFW" = y ]; then
+  echo "UFW configured for: $ALLOWED_SUBNETS (ports: $([ "$ENABLE_NETBIOS" = y ] && echo '137/udp,138/udp,139/tcp,445/tcp' || echo '445/tcp'))"
+fi
