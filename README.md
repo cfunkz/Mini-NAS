@@ -48,7 +48,6 @@ A miniature NAS system tested on unprivileged `Debian 12` container using `Proxm
 
 ### Limitations
 - Samba authentication is local-only (no AD/LDAP).
-- Samba admins are effectively trusted users.
 - No brute force mitigation, must install fail2ban.
 - Must configure your firewalls manually.
 - Changes are script-driven.
