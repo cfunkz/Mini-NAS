@@ -42,14 +42,16 @@ A miniature NAS system tested on unprivileged `Debian 12` container using `Proxm
 - Works with privileged and unprivileged LXC containers.
 - Creates a complete mini NAS structure with Homes, optional Shared, Public, and Guest shares.
 - Create custom groups & shares easily.
-- Per-user recycle bins.
+- Per-user recycle bins if enabled.
 - Automated user, group, and Samba account management.
 - Automated share management.
+- Automated UFW firewall if enabled.
+- Optional NetBios support if enabled.
 
 ### Limitations
 - Samba authentication is local-only (no AD/LDAP).
+- Windows ACLs not fully supported.
 - No brute force mitigation, must install fail2ban.
-- Must configure your firewalls manually.
 - Changes are script-driven.
 
 ## Installation
