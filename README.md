@@ -55,7 +55,6 @@ A miniature NAS system tested on unprivileged `Debian 12` container using `Proxm
 - Changes are made via `nasctl` commands.
 
 ## Installation
-> NOTE: **AS ROOT ON THE HOST NODE, NOT IN CONTAINER**
 ```bash
 # Setup Script
 wget -O nas https://raw.githubusercontent.com/cfunkz/Proxmox-LXC-SMB/main/nas.sh
