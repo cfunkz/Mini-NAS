@@ -31,7 +31,7 @@ A miniature NAS system tested on unprivileged `Debian 12` container using `Proxm
 - **Homes**: private.
 - **Shared** (Optional): everyone can read/write/delete.
 - **Public** (Optional): everyone read; only `nas_public` + `nas_admin` can write.
-- **Guest** (optional): read-only for guests, writable by `nas_admin`.
+- **Guest** (Optional): read-only for guests, writable by `nas_admin`.
 
 ### Roles
 - `nas_user` = Standard users; read access to all enabled shares, write access limited to their own home directory.
