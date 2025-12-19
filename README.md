@@ -39,7 +39,7 @@ A miniature NAS system tested on unprivileged `Debian 12` container using `Proxm
 - `nas_public` = Users granted write permissions specifically for the Public share.
 
 ### Features
-- Works with privileged and unprivileged LXC containers.
+- Works within Proxmox containers.
 - Creates a complete mini NAS structure with Homes, optional Shared, Public, and Guest shares.
 - Create custom groups & shares easily.
 - Per-user recycle bins if enabled.
