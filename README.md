@@ -57,7 +57,7 @@ A miniature NAS system tested on unprivileged `Debian 12` container using `Proxm
 ## Installation
 ```bash
 # Setup Script
-wget -O nas https://raw.githubusercontent.com/cfunkz/Proxmox-LXC-SMB/main/nas.sh
+wget -O nas https://raw.githubusercontent.com/cfunkz/Mini-NAS/main/nas.sh
 chmod +x nas
 
 # Run setup script
