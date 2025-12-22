@@ -44,7 +44,6 @@ A miniature NAS system tested on unprivileged `Debian 12` container using `Proxm
 - Create custom groups & shares easily.
 - Per-user recycle bins if enabled.
 - Automated user, group, and Samba account management.
-- Automated share management.
 - Automated UFW firewall if enabled.
 - Optional NetBios support if enabled.
 
