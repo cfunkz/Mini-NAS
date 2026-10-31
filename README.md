@@ -1,126 +1,129 @@
-# Mini Samba NAS Setup
-A miniature NAS system tested on unprivileged `Debian 12` container using `Proxmox VE 9.1.2`. Designed for homelabs and small trusted environments.
+# Mini-NAS
 
----
-<img width="1919" height="355" alt="image" src="https://github.com/user-attachments/assets/170fdb8a-8a81-48a6-80e2-6870dc579210" />
+Turn any Linux VM into a simple file server (Samba / SMB) in one command.
+Made for Proxmox, works on any VM or VPS.
 
-> ⚠️ Disclaimer  
-> Built as a personal project and learning exercise, I'm no expert!
-> Worked well for my use case, has been tested enough to be useful, but not enough for me to claim it won't cause a headache.
-> Use at your own risk.
+Supported: **Debian 12/13, Ubuntu 22.04+, Rocky / Alma / RHEL 9+** (VM or LXC).
 
-## TODO
-- ~~Management Script~~
-- ~~Recycle bin clean-up service~~
-- Basic Web Panel
-- Quota Management
+What you get:
 
-## Table of Contents
-- [How Access Works](#how-access-works)
-  - [Default Share Permissions](#default-share-permissions)
-  - [Roles](#roles)
-  - [Features](#features)
-  - [Limitations](#limitations)
-- [Installation](#installation)
-  - [Follow Steps](#Follow-Steps)
-  - [Manage](#Manage)
+- `\\nas\shared`: one folder everyone on the NAS can read and write
+- `\\nas\<username>`: a private folder per user
+- Optional: data on its own disk (e.g. a disk on your Proxmox ZFS pool)
+- Optional: a small web page that shows how much space is left (`http://nas:8080`)
+- The `nas` command to add users and check status
 
-## How Access Works
+That's it. No web admin panel, no database, nothing to keep updated except your OS.
 
-### Default Share Permissions
-- **Homes**: private to each user.
-- **Shared** (Optional): `nas_user` can read/write/delete.
-- **Public** (Optional): `nas_user` read; only `nas_public` + `nas_admin` can write.
-- **Guest** (Optional): read-only for guests, writable by `nas_public` + `nas_admin`.
+> **LAN only.** This is meant for a trusted home / homelab network. Samba only
+> accepts private addresses (10.x, 172.16-31.x, 192.168.x) by default.
+> **Do not port-forward 445 or 8080 to the internet**, and don't run this on a
+> public VPS without a firewall. For remote access use a VPN
+> (WireGuard, Tailscale, ...) and reach the NAS through it.
 
-### Roles
-- `nas_user` = Standard users; read access to all enabled shares, write access limited to their own home directory.
-- `nas_admin` = Full administrative access; read, write, and modify all shares and user directories.
-- `nas_public` = Users granted write permissions specifically for the Public share.
+## Install
 
-### Features
-- Works within Proxmox containers.
-- Creates a complete mini NAS structure with Homes, optional Shared, Public, and Guest shares.
-- Create custom groups & shares easily.
-- Per-user recycle bins if enabled.
-- Automated user, group, and Samba account management.
-- Automated UFW firewall if enabled.
-- Optional NetBios support if enabled.
-
-### Limitations
-- Samba authentication is local-only (no AD/LDAP).
-- Windows ACLs not fully supported.
-- No brute force mitigation, must install fail2ban.
-- Changes are made via `nasctl` commands.
-- The backup only saves `/etc/samba/smb.conf` contents.
-
-## Installation
 ```bash
-# Setup Script
-wget -O nas https://raw.githubusercontent.com/cfunkz/Mini-NAS/main/nas.sh
-chmod +x nas
-
-# Run setup script
-./nas
+wget https://raw.githubusercontent.com/cfunkz/Mini-NAS/main/install.sh
+sudo bash install.sh
 ```
 
-### Follow Steps
-> NOTE: Install by following the steps
-<img width="800" height="630" alt="image" src="https://github.com/user-attachments/assets/4ded3c86-fb0a-4d9f-9c84-d15dc559c112" />
+It asks a few questions (just press Enter for the defaults):
 
-### Manage
-> NOTE: Post-install management
-```py
-Users:
-  nasctl user add <name>
-  nasctl user del <name> [--purge-home]
-  nasctl user passwd <name>
+| Question | Default | Notes |
+|---|---|---|
+| Data folder | `/srv/nas` | Where files are stored |
+| Disk to use for data | none | A blank disk is formatted ext4 and mounted on the data folder. A disk that already has ext4/xfs/btrfs is reused, never formatted. |
+| First NAS user | `nas` | You'll be asked for its password |
+| Allowed networks | all private ranges | e.g. `192.168.1.0/24` to lock it to one LAN |
+| Listen only on NIC(s) | all | e.g. `ens19` if the VM has a separate storage NIC |
+| Disk space web page | yes | Read-only, no login, port 8080 |
 
-Groups:
-  nasctl group create <group>
-  nasctl group adduser <group> <user>
-  nasctl group deluser <group> <user>
-  nasctl group list <user>
+Then connect from:
 
-Config:
-  nasctl conf backup
-  nasctl conf list
-  nasctl conf restore <file.tgz>
+- **Windows:** `\\<ip>\shared` in Explorer, or *Map network drive* (free space shows in Explorer)
+- **macOS:** Finder > Go > Connect to Server > `smb://<ip>/shared`
+- **Linux:** `smb://<ip>/shared` in your file manager
 
-Shares:
-  nasctl share list
-  nasctl share enable  <name>
-  nasctl share disable <name>
-  nasctl share create <name> <path> <valid_users> <write_list>
-  nasctl share delete <name> [--purge-share]
+Running the installer again is safe: it keeps your files, users and disk.
 
-Recycle:
-  nasctl recycle flush
-  nasctl recycle days <N>
-  nasctl recycle timer on|off
-```
+### Unattended
 
-To create a new `"Media"` share follow the steps:
-
-**1. Create a custom user group if needed (Optional)**
 ```bash
- nasctl group create nas_media
+sudo NAS_YES=1 NAS_USER=alice NAS_PASS='change-me' \
+     NAS_DISK=/dev/sdb NAS_FORMAT=yes NAS_ALLOW=192.168.1.0/24 bash install.sh
 ```
 
-**2. Add wanted users to the group**
+Variables: `NAS_DIR`, `NAS_DISK`, `NAS_FORMAT`, `NAS_USER`, `NAS_PASS`, `NAS_ALLOW`, `NAS_IFACE`, `NAS_WEB` (yes/no).
+
+## Manage
+
+```
+nas user add <name>      add a user (asks for password)
+nas user del <name>      remove a user (keeps their files)
+nas user passwd <name>   change a password
+nas user list            list users
+nas status               free space, service, IPs, who is connected
+```
+
+NAS users can't log in over SSH, they only exist for file access.
+
+**Want another share?** Edit `/etc/samba/smb.conf`, copy the commented `[media]`
+example at the bottom, then:
+
 ```bash
-nasctl group adduser nas_media nasuser
+sudo install -d -m 2770 -g nas /srv/nas/media
+sudo testparm && sudo systemctl restart smbd   # "smb" on Rocky/Alma
 ```
 
-**3. Create the share**
-```bash
-# If for "nas_media" only
-nasctl share create Media /srv/samba/media "@nas_media" "@nas_media"
+## Proxmox tips
 
-# If for all users
-nasctl share create Media /srv/samba/media "@nas_user @nas_admin" "@nas_user @nas_admin"
-```
+**Storage (VM).** Keep the OS disk small and add a second disk for data:
+*VM > Hardware > Add > Hard Disk*, pick your ZFS (or LVM-thin) storage, tick
+**Discard**. Then choose that disk (usually `/dev/sdb`) in the installer.
 
-**Auto-appends to:** `/etc/samba/smb.conf`
+- The installer puts plain ext4 on it. Don't run ZFS inside the VM on top of
+  host ZFS; let Proxmox do ZFS (snapshots, compression, scrubs).
+- With Discard on, the weekly `fstrim` the installer enables gives deleted
+  space back to the ZFS pool.
+- Need more space? Resize the disk in Proxmox, then in the VM:
+  `sudo resize2fs /dev/sdb`. No partitions to fiddle with.
+- Free space shown by the NAS is the size of that virtual disk. If the ZFS pool
+  is thin-provisioned and overcommitted, also watch the pool on the host
+  (`zfs list`).
 
-<img width="387" height="270" alt="image" src="https://github.com/user-attachments/assets/3889dd10-bb76-403e-9199-72f7583df638" />
+**Storage (LXC).** You can't format disks inside an unprivileged container. Add a
+mount point instead (*CT > Resources > Add > Mount Point*, path `/srv/nas`) and
+leave "Disk to use" blank in the installer.
+
+**Multiple NICs.** If the VM has a second NIC on a storage bridge/VLAN, answer
+e.g. `ens19` to "Listen only on NIC(s)" so Samba isn't reachable from the other
+network. Check names with `ip -br a`.
+
+## Security defaults
+
+- Only private LAN ranges may connect (`hosts allow`), everything else is denied
+- No guest or anonymous access
+- SMB1 and NetBIOS off; SMB2.1+ only; encryption used when the client supports it
+- Per-user folders are private (`0700`); shared folder is group `nas` only
+- Web page is read-only, shows only free space, answers private IPs only,
+  and runs as an unprivileged sandboxed systemd service
+- If `ufw` or `firewalld` is already active, ports 445 (and 8080) are opened
+  only for your allowed networks. The installer never switches a firewall on for
+  you, so you can't get locked out of SSH.
+- SELinux (Rocky/Alma) stays enforcing; the data folder gets the right label.
+
+Turn off the web page any time: `sudo systemctl disable --now nas-web`.
+
+## Files
+
+| Path | What |
+|---|---|
+| `/etc/samba/smb.conf` | Samba config (old one backed up next to it) |
+| `/etc/mini-nas.conf` | Data folder location for the `nas` command |
+| `/usr/local/sbin/nas` | The `nas` command |
+| `/usr/local/lib/nas-web.py` | Disk space page |
+
+## License
+
+See [LICENSE](LICENSE).
